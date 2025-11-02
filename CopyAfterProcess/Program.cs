@@ -16,8 +16,8 @@ namespace CopyAfterProcess
         /// Random Number Generator
         /// </summary>
         private static Random random = new Random();  // For generating random 4-digit number
-        private static string sourcePath = null;
-        private static string destPath = null;
+        private static string sourcePath = String.Empty;
+        private static string destPath = String.Empty;
 
 
         /// <summary>
@@ -366,7 +366,23 @@ namespace CopyAfterProcess
                 }
                 catch
                 {
-                    throw new IOException($"Failed to move '{path}' to Recycle Bin (tried short: '{shortPath}'): {ex.Message}", ex);
+                    Debug.WriteLine($"Fallback to delete on Windows: '{path}'.");
+                    try
+                    {
+                        if (Directory.Exists(path))
+                        {
+                            Directory.Delete(path, true);
+                        }
+                        else if (File.Exists(path))
+                        {
+                            File.Delete(path);
+                        }
+                    }
+                    catch
+                    {
+                        // It really failed
+                        throw new IOException($"Failed to move '{path}' to Recycle Bin (tried short: '{shortPath}'): {ex.Message}", ex);
+                    }
                 }
             }
         }
@@ -419,7 +435,7 @@ namespace CopyAfterProcess
 
             // Truncate cleanName to 20 chars
             string truncatedName = Path.GetFileName(cleanName).Length > truncLen
-                                    ? Path.GetFileName(cleanName).Substring(0, truncLen) 
+                                    ? Path.GetFileName(cleanName).Substring(0, truncLen)
                                     : Path.GetFileName(cleanName);
             string newFolderPath = PathConverter.NormalizePath(Path.Combine(sourcePath, randomNum.ToString("0000")/*, truncatedName*/));
 
@@ -442,7 +458,7 @@ namespace CopyAfterProcess
                 {
                     // Create it
                     // C#
-                    string destParent = Path.GetDirectoryName(newFolderPath);
+                    string destParent = Path.GetDirectoryName(newFolderPath) ?? newFolderPath;
                     if (!Directory.Exists(destParent))
                     {
                         // Create using normalized path
@@ -451,7 +467,8 @@ namespace CopyAfterProcess
 
                     //Directory.Move(PathConverter.NormalizePath(Path.GetDirectoryName(path)), newFolderPath);
                     // Move it
-                    Directory.Move(PathConverter.NormalizePath(Path.GetDirectoryName(path)), newFolderPath);
+                    Directory.Move(PathConverter.NormalizePath(Path.GetDirectoryName(path) 
+                                ?? path), newFolderPath);
                     Console.WriteLine($"  Renamed source folder: '{Path.GetFileName(path)}' -> '{Path.GetDirectoryName(newFolderPath)}'");
 
                     // Return the new folder path
@@ -498,6 +515,31 @@ namespace CopyAfterProcess
             return cleanName;
         }
 
-
+        // Dictionary to hold parsed args: key = name, value = string
+        private static Dictionary<string, string> ParseNamedArgs(string[] args)
+        {
+            var namedArgs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < args.Length; i++)
+            {
+                string arg = args[i].Trim();
+                if (arg.StartsWith("--") || arg.StartsWith('/'))
+                {
+                    string key = arg.Substring(2).Trim().ToLower();  // e.g., "--input" -> "input"
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("--") && !args[i + 1].StartsWith('/'))
+                    {
+                        namedArgs[key] = args[++i].Trim();  // Next arg is value
+                    }
+                    else
+                    {
+                        namedArgs[key] = string.Empty;  // Flag without value (e.g., --verbose)
+                    }
+                }
+                else if (!namedArgs.ContainsKey("positional"))  // Fallback for unnamed
+                {
+                    namedArgs["positional"] = arg;  // Handle first positional if needed
+                }
+            }
+            return namedArgs;
+        }
     }
 }
