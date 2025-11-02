@@ -10,12 +10,15 @@ namespace CopyAfterProcess
     /// Copy After Process allows you to take transcoded files in a temporary 
     /// directory to a Movie Library Folder
     /// </summary>
-    class Program
+    public class Program
     {
         /// <summary>
         /// Random Number Generator
         /// </summary>
         private static Random random = new Random();  // For generating random 4-digit number
+        private static string sourcePath = null;
+        private static string destPath = null;
+
 
         /// <summary>
         /// Main entry point
@@ -23,18 +26,13 @@ namespace CopyAfterProcess
         /// <param name="args">Arguments.  Usage: MovieRenamer 
         /// [source_folder] [destination_folder]
         /// </param>
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
-            ///*RecycleBinHelper.*/MoveToRecycleBin(@"F:\jeff\Trans\Jurassic Park (1993) {Tmdb-329} - [Remux-2160P Proper][Dts-Hd Ma 5.1][Dv Hdr10][Hevc]-Cinephiles");
-
-            //MoveToRecycleBin(@"F:\jeff\Trans\Jurassic Park (1993) {Tmdb-329} - [Remux-2160P Proper][Dts-Hd Ma 5.1][Dv Hdr10][Hevc]-Cinephiles\Jurassic Park (1993) {Tmdb-329} - [Remux-2160P Proper][Dts-Hd Ma 5.1][Dv Hdr10][Hevc]-Cinephiles-1\Jurassic Park (1993) {Tmdb-329} - [Re\New Text Document.txt");
-
-            //return;
-
             // Set up counters
             int totalFiles = 0;
             int goodFiles = 0;
             int badFiles = 0;
+            bool cleanUp = false;
 
             // Make sure that we got our arguments
             if (args.Length != 2 && !Debugger.IsAttached)
@@ -51,11 +49,12 @@ namespace CopyAfterProcess
                     @"F:\jeff\Trans",
                     @"H:\jeff\files\Video\Movies"
                 };
+                cleanUp = true;
             }
 
             // Set up paths and normalize them
-            string sourcePath = LongPathHelper.NormalizePath(args[0]);
-            string destPath = LongPathHelper.NormalizePath(args[1]);
+            sourcePath = LongPathHelper.NormalizePath(args[0]);
+            destPath = LongPathHelper.NormalizePath(args[1]);
 
             // Validate source and destination directories
             if (!Directory.Exists(sourcePath))
@@ -136,7 +135,7 @@ namespace CopyAfterProcess
 
                     foreach (var curDir in destMovieFiles)
                     {
-                        Console.WriteLine($" Multi-File: \"{curDir}\"");
+                        Console.WriteLine($"  Multi-File: \"{curDir}\"");
                     }
 
                     badFiles++;
@@ -174,6 +173,9 @@ namespace CopyAfterProcess
                 if (IsAreEqual(oldFilePath, newSourcePath))
                 {
                     goodFiles++;
+                    // Should we offer to delete the original since they match?
+                    // TODO: Recycle Bin
+                    if (cleanUp) doCleanUp(oldFilePath);
                     continue;
                 }
 
@@ -185,7 +187,7 @@ namespace CopyAfterProcess
                     {
                         // If we reach here, the file is not locked.
                         stream.Close();
-                        Console.WriteLine($" File is not locked or in use.");
+                        Console.WriteLine($"  File is not locked or in use.");
                     }
                 }
                 catch (IOException ex)
@@ -211,14 +213,24 @@ namespace CopyAfterProcess
                     var mover = new LongPathProgressFileMover();
 
                     // Set up delegates
-                    mover.OnProgressChanged += (progress, ref cancel) =>
+                    mover.OnProgressChanged += (progress, speed, name, ref cancel) =>
                     {
-                        Debug.WriteLine($" Progress: {progress}");
+                        // Report it to the user
+                        string status = $"Copying {name}: {progress:F0}% ({speed})";
+                        Console.Write($"\r {status,-80}");  // Pad to fixed width for overwrite
                     };
 
                     mover.OnComplete += (success, message) =>
                     {
-                        Console.WriteLine(message);
+                        if (success)
+                        {
+                            Console.WriteLine(message);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Error!!!1");
+                            Console.WriteLine(message);
+                        }
                     };
 
                     // Set up long paths
@@ -255,12 +267,109 @@ namespace CopyAfterProcess
                 }
 
                 // Move the old folder to the Recycle Bin
-                MoveToRecycleBin(Path.GetDirectoryName(oldFilePath));
+                MoveToRecycleBin(oldFilePath);
+
+                // Console
+                Console.WriteLine(Environment.NewLine);
+                Console.WriteLine("---");
+                Console.WriteLine(Environment.NewLine);
             }
 
             // Done
+            Console.WriteLine(Environment.NewLine);
+            Console.WriteLine(Environment.NewLine);
             Console.WriteLine("\nProcessing complete.");
             Console.WriteLine($"Total Files: {totalFiles}, Good Files: {goodFiles}, Bad Files: {badFiles}.");
+            Console.WriteLine(Environment.NewLine);
+        }
+
+        /// <summary>
+        /// Utility method that recycles videos. To be called with matching sizes
+        /// </summary>
+        /// <param name="filePath">The path to the file</param>
+        private static void doCleanUp(string filePath)
+        {
+            // Make sure it exists
+            if (!File.Exists(filePath) && !Directory.Exists(filePath))
+            {
+                Console.WriteLine("  Error doing cleanup, path does not exist.");
+                return;
+            }
+
+            // Recycle
+            MoveToRecycleBin(filePath);
+        }
+
+        /// <summary>
+        /// Utility method that moves a file or folder to the 
+        /// Recycyle Bin on Windows, or normal delete otherwise
+        /// </summary>
+        /// <param name="path">Path to the file or folder</param>
+        /// <exception cref="ArgumentException"></exception>
+        public static void MoveToRecycleBin(string path)
+        {
+            // Check to see if the file or directory exists
+            if (!File.Exists(path) && !Directory.Exists(path))
+            {
+                throw new ArgumentException($"Path '{path}' does not exist.");
+            }
+
+            // Check to see if we are on Windows
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                // Nope, do a manual delete
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, true);
+                }
+                else if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+
+                // Leave it
+                return;
+            }
+
+            // Shrink the source path
+            path = ShrinkLength(path, GetCleanName(path));
+
+            // Convert to short path for COM compatibility
+            string shortPath = PathConverter.ToShortPath(path);
+            bool isDirectory = Directory.Exists(path);
+
+            if ((!isDirectory && !File.Exists(shortPath)) || (isDirectory && !Directory.Exists(shortPath)))
+            {
+                throw new ArgumentException($"Path '{path}' does not exist.");
+            }
+
+            // Set up shell object
+            var shellType = Type.GetTypeFromProgID("Shell.Application", throwOnError: true)!;
+            dynamic shellApp = Activator.CreateInstance(shellType)!;
+
+            // 0xa is the constant for the Recycle Bin folder (ShellSpecialFolderConstants.ssfRECYCLEBIN).
+            var recycleBin = shellApp.Namespace(0xa);
+            
+            // Move the file/folder to the Recycle Bin.
+            //recycleBin.MoveHere(Path.GetFullPath(path);
+
+            try
+            {
+                // Use short path for MoveHere
+                recycleBin.MoveHere(shortPath);
+            }
+            catch (Exception ex)
+            {
+                // Fallback: Try original long path
+                try
+                {
+                    recycleBin.MoveHere(path);
+                }
+                catch
+                {
+                    throw new IOException($"Failed to move '{path}' to Recycle Bin (tried short: '{shortPath}'): {ex.Message}", ex);
+                }
+            }
         }
 
         /// <summary>
@@ -307,11 +416,13 @@ namespace CopyAfterProcess
         {
             // Generate random 4-digit number
             int randomNum = random.Next(1000, 9999);
-            
+            const int truncLen = 10;
+
             // Truncate cleanName to 20 chars
-            string truncatedName = cleanName.Length > 20 ? cleanName.Substring(0, 20) : cleanName;
-            //string newFolderName = $"{randomNum} {truncatedName}";
-            string newFolderPath = LongPathHelper.NormalizePath(Path.Combine(path, randomNum.ToString(), truncatedName, cleanName));
+            string truncatedName = Path.GetFileName(cleanName).Length > truncLen
+                                    ? Path.GetFileName(cleanName).Substring(0, truncLen) 
+                                    : Path.GetFileName(cleanName);
+            string newFolderPath = LongPathHelper.NormalizePath(Path.Combine(sourcePath, randomNum.ToString("0000")/*, truncatedName*/));
 
             // Check length
             if (newFolderPath.Length >= 260)
@@ -330,6 +441,16 @@ namespace CopyAfterProcess
             {
                 try
                 {
+                    // Create it
+                    // C#
+                    string destParent = Path.GetDirectoryName(newFolderPath);
+                    if (!Directory.Exists(destParent))
+                    {
+                        // Create using normalized path
+                        Directory.CreateDirectory(LongPathHelper.NormalizePath(destParent));
+                    }
+
+                    //Directory.Move(LongPathHelper.NormalizePath(Path.GetDirectoryName(path)), newFolderPath);
                     // Move it
                     Directory.Move(LongPathHelper.NormalizePath(Path.GetDirectoryName(path)), newFolderPath);
                     Console.WriteLine($"  Renamed source folder: '{Path.GetFileName(path)}' -> '{Path.GetDirectoryName(newFolderPath)}'");
@@ -378,49 +499,6 @@ namespace CopyAfterProcess
             return cleanName;
         }
 
-        /// <summary>
-        /// Utility method that moves a file or folder to the 
-        /// Recycyle Bin on Windows, or normal delete otherwise
-        /// </summary>
-        /// <param name="path">Path to the file or folder</param>
-        /// <exception cref="ArgumentException"></exception>
-        public static void MoveToRecycleBin(string path)
-        {
-            // Check to see if the file or directory exists
-            if (!File.Exists(path) && !Directory.Exists(path))
-            {
-                throw new ArgumentException($"Path '{path}' does not exist.");
-            }
 
-            // Check to see if we are on Windows
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                // Nope, do a manual delete
-                if (Directory.Exists(path))
-                {
-                    Directory.Delete(path, true);
-                }
-                else if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-
-                // Leave it
-                return;
-            }
-
-            // Set up shell object
-            var shellType = Type.GetTypeFromProgID("Shell.Application", throwOnError: true)!;
-            dynamic shellApp = Activator.CreateInstance(shellType)!;
-
-            // 0xa is the constant for the Recycle Bin folder (ShellSpecialFolderConstants.ssfRECYCLEBIN).
-            var recycleBin = shellApp.Namespace(0xa);
-
-            // Shrink the source path
-            path = ShrinkLength(path, GetCleanName(path));
-
-            // Move the file/folder to the Recycle Bin.
-            recycleBin.MoveHere(path);
-        }
     }
 }
