@@ -53,8 +53,8 @@ namespace CopyAfterProcess
             }
 
             // Set up paths and normalize them
-            sourcePath = LongPathHelper.NormalizePath(args[0]);
-            destPath = LongPathHelper.NormalizePath(args[1]);
+            sourcePath = PathConverter.NormalizePath(args[0]);
+            destPath = PathConverter.NormalizePath(args[1]);
 
             // Validate source and destination directories
             if (!Directory.Exists(sourcePath))
@@ -78,7 +78,7 @@ namespace CopyAfterProcess
                 totalFiles++;
 
                 // Normalize subdir path for further use
-                string normalizedSubdir = LongPathHelper.NormalizePath(subdir);
+                string normalizedSubdir = PathConverter.NormalizePath(subdir);
                 string fullFolderName = Path.GetFileName(normalizedSubdir); // Safe, as GetFileName handles prefixed paths
                 Console.WriteLine($"\nProcessing folder: {fullFolderName}");
 
@@ -106,7 +106,7 @@ namespace CopyAfterProcess
                 Console.WriteLine($"  Clean name: {cleanName}");
 
                 // Normalize dest subdir path
-                string destSubdir = LongPathHelper.NormalizePath(Path.Combine(destPath, cleanName)); // Combine first, then normalize
+                string destSubdir = PathConverter.NormalizePath(Path.Combine(destPath, cleanName)); // Combine first, then normalize
 
                 // Check to see if it exists
                 if (!Directory.Exists(destSubdir))
@@ -143,9 +143,9 @@ namespace CopyAfterProcess
                 }
 
                 // Normalize target file path
-                string targetFilePath = LongPathHelper.NormalizePath(destMovieFiles[0]);
+                string targetFilePath = PathConverter.NormalizePath(destMovieFiles[0]);
                 string newFileName = Path.GetFileName(targetFilePath);
-                string newSourcePath = LongPathHelper.NormalizePath(Path.Combine(destPath, Path.GetFileName(destSubdir) ?? destSubdir, newFileName)); // Combine then normaliz
+                string newSourcePath = PathConverter.NormalizePath(Path.Combine(destPath, Path.GetFileName(destSubdir) ?? destSubdir, newFileName)); // Combine then normaliz
 
                 // Find the source movie file matching "<fullFolderName>-1.<ext>"
                 string[] movieFiles = Directory.GetFiles(subdir, $"{fullFolderName}-1.*")
@@ -238,7 +238,7 @@ namespace CopyAfterProcess
                     string longDest = newSourcePath;
 
                     // Sanity check
-                    if (LongPathHelper.IsLongPath(longSource))
+                    if (PathConverter.IsLongPath(longSource))
                         Console.WriteLine("  Detected long path - using \\?\\ prefix.");
 
                     // Copy the file, with progress reports
@@ -281,6 +281,8 @@ namespace CopyAfterProcess
             Console.WriteLine("\nProcessing complete.");
             Console.WriteLine($"Total Files: {totalFiles}, Good Files: {goodFiles}, Bad Files: {badFiles}.");
             Console.WriteLine(Environment.NewLine);
+            Console.WriteLine("Press any key to exit");
+            Console.ReadKey();
         }
 
         /// <summary>
@@ -349,9 +351,6 @@ namespace CopyAfterProcess
 
             // 0xa is the constant for the Recycle Bin folder (ShellSpecialFolderConstants.ssfRECYCLEBIN).
             var recycleBin = shellApp.Namespace(0xa);
-            
-            // Move the file/folder to the Recycle Bin.
-            //recycleBin.MoveHere(Path.GetFullPath(path);
 
             try
             {
@@ -422,7 +421,7 @@ namespace CopyAfterProcess
             string truncatedName = Path.GetFileName(cleanName).Length > truncLen
                                     ? Path.GetFileName(cleanName).Substring(0, truncLen) 
                                     : Path.GetFileName(cleanName);
-            string newFolderPath = LongPathHelper.NormalizePath(Path.Combine(sourcePath, randomNum.ToString("0000")/*, truncatedName*/));
+            string newFolderPath = PathConverter.NormalizePath(Path.Combine(sourcePath, randomNum.ToString("0000")/*, truncatedName*/));
 
             // Check length
             if (newFolderPath.Length >= 260)
@@ -447,12 +446,12 @@ namespace CopyAfterProcess
                     if (!Directory.Exists(destParent))
                     {
                         // Create using normalized path
-                        Directory.CreateDirectory(LongPathHelper.NormalizePath(destParent));
+                        Directory.CreateDirectory(PathConverter.NormalizePath(destParent));
                     }
 
-                    //Directory.Move(LongPathHelper.NormalizePath(Path.GetDirectoryName(path)), newFolderPath);
+                    //Directory.Move(PathConverter.NormalizePath(Path.GetDirectoryName(path)), newFolderPath);
                     // Move it
-                    Directory.Move(LongPathHelper.NormalizePath(Path.GetDirectoryName(path)), newFolderPath);
+                    Directory.Move(PathConverter.NormalizePath(Path.GetDirectoryName(path)), newFolderPath);
                     Console.WriteLine($"  Renamed source folder: '{Path.GetFileName(path)}' -> '{Path.GetDirectoryName(newFolderPath)}'");
 
                     // Return the new folder path

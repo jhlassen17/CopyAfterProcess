@@ -31,7 +31,7 @@ namespace CopyAfterProcess
                 return longPath;
 
             // Strip long path prefix first (MoveHere doesn't like it)
-            string normalized = LongPathHelper.NormalizePath(longPath);  // Ensure consistent prefix
+            string normalized = PathConverter.NormalizePath(longPath);  // Ensure consistent prefix
             string unpinned = normalized;
             if (normalized.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
             {
@@ -55,5 +55,72 @@ namespace CopyAfterProcess
 
             return shortPath.ToString();
         }
+
+        /// <summary>
+        /// Takes a path and normalizes it into a supported 
+        /// Long Path
+        /// </summary>
+        /// <param name="path">Path to file or folder</param>
+        /// <returns>A converted long path</returns>
+        public static string ToLongPath(string path)
+        {
+            // Check base case
+            if (string.IsNullOrEmpty(path))
+                return path;
+
+            // Remove accidental whitespace
+            path = path.Trim();
+
+            // Early exit if already prefixed correctly
+            if (path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+                return path;
+
+            // Check for local drive pattern: [A-Z]:[\\/]...
+            if (path.Length >= 3 && char.IsLetter(path[0]) && path[1] == ':' && (path[2] == '\\' || path[2] == '/'))
+            {
+                return @"\\?\" + path;
+            }
+
+            // UNC handling: Starts with \\ but NOT a malformed drive (e.g., not \\C:\)
+            if (path.StartsWith(@"\\"))
+            {
+                // Guard against malformed \\Drive: paths
+                if (path.Length >= 5 && char.IsLetter(path[2]) && path[3] == ':' && (path[4] == '\\' || path[4] == '/'))
+                {
+                    // Treat as local (e.g., \\C:\ -> \\?\C:\)
+                    return @"\\?\" + path.Substring(2);  // Skip the leading \\
+                }
+
+                // True UNC: Prefix with \\?\UNC\
+                if (!path.StartsWith(@"\\?\\UNC\", StringComparison.OrdinalIgnoreCase))
+                {
+                    return @"\\?\UNC\" + path.Substring(2);
+                }
+                return path;  // Already good
+            }
+
+            // Relative or other: No change
+            return path;
+        }
+
+        /// <summary>
+        /// Takes a path and normalizes it into a supported 
+        /// Long Path
+        /// </summary>
+        /// <param name="path">Path to file or folder</param>
+        /// <returns>A converted long path</returns>
+        public static string NormalizePath(string path)
+        {
+            return ToLongPath(path);
+        }
+
+        /// <summary>
+        /// Utility method that checks to see if the specified 
+        /// path is a long path
+        /// </summary>
+        /// <param name="path">A path to a file or folder</param>
+        /// <returns>True if it is a long path</returns>
+        public static bool IsLongPath(string path) => !string.IsNullOrEmpty(path?.Trim()) && path.Length >= 260;
+
     }
 }
