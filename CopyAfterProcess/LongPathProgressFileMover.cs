@@ -83,7 +83,7 @@ namespace CopyAfterProcess
         /// <param name="percentage">Overall copy/move 
         /// progress as a percentage</param>
         /// <param name="cancel">Ref bool to cancel processing</param>
-        public delegate void ProgressDelegate(double percentage, ref bool cancel);
+        public delegate void ProgressDelegate(double percentage, string speed, string name, ref bool cancel);
 
         /// <summary>
         /// Copy/Move Completed Delegate
@@ -131,7 +131,8 @@ namespace CopyAfterProcess
             if (isSameDrive)
             {
                 // Same drive: Atomic move (File.Move handles long paths with prefix).
-                OnProgressChanged?.Invoke(100.0, ref cancelFlag);
+                OnProgressChanged?.Invoke(100.0, "0 MB/s", Path.GetDirectoryName(sourcePath)
+                                    , ref cancelFlag);
                 try
                 {
                     // Move it
@@ -198,7 +199,7 @@ namespace CopyAfterProcess
             if (isSameDrive)
             {
                 // Same drive: Simple copy (File.Copy handles long paths with prefix, overwrites if exists).
-                OnProgressChanged?.Invoke(100.0, ref cancelFlag);
+                OnProgressChanged?.Invoke(100.0, "0 MB/s", Path.GetDirectoryName(sourcePath), ref cancelFlag);
                 try
                 {
                     // Copy it
@@ -277,8 +278,8 @@ namespace CopyAfterProcess
                     lastTotalRead = totalRead;
                     lastUpdate = now;
 
-                    // Report progress (invoke event for external use, e.g., UI)
-                    OnProgressChanged?.Invoke(percentage, ref cancelFlag);
+                    //// Report progress (invoke event for external use, e.g., UI)
+                    //OnProgressChanged?.Invoke(percentage, "0 MB/s", ref cancelFlag);
 
                     // Determine units and format
                     string speedStr;
@@ -300,9 +301,13 @@ namespace CopyAfterProcess
                         }
                     }
 
+                    // Report progress (invoke event for external use, e.g., UI)
+                    OnProgressChanged?.Invoke(percentage, speedStr, cleanName, ref cancelFlag);
+
                     // Report it to the user
                     string status = $"Copying {cleanName}: {percentage:F0}% ({speedStr})";
-                    Console.Write($"\r {status,-60}");  // Pad to fixed width for overwrite
+                    Debug.WriteLine(status);
+                    //Console.Write($"\r {status,-60}");  // Pad to fixed width for overwrite
                 }
 
                 stopwatch.Stop();
