@@ -70,7 +70,7 @@ namespace CopyAfterProcess
             {
                 // Same drive: Atomic move (File.Move handles long paths with prefix).
                 OnProgressChanged?.Invoke(100.0, "0 MB/s", Path.GetDirectoryName(sourcePath)
-                                    , ref cancelFlag);
+                                    ?? String.Empty, ref cancelFlag);
                 try
                 {
                     // Move it
@@ -137,7 +137,8 @@ namespace CopyAfterProcess
             if (isSameDrive)
             {
                 // Same drive: Simple copy (File.Copy handles long paths with prefix, overwrites if exists).
-                OnProgressChanged?.Invoke(100.0, "0 MB/s", Path.GetDirectoryName(sourcePath), ref cancelFlag);
+                OnProgressChanged?.Invoke(100.0, "0 MB/s", Path.GetDirectoryName(sourcePath)
+                                    ?? String.Empty, ref cancelFlag);
                 try
                 {
                     // Copy it
