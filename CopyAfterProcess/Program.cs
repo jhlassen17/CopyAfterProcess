@@ -2,7 +2,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace CopyAfterProcess
 {
@@ -33,6 +35,7 @@ namespace CopyAfterProcess
             int goodFiles = 0;
             int badFiles = 0;
             bool cleanUp = false;
+            bool updPlex = true;
 
             // Make sure that we got our arguments
             if (args.Length != 2 && !Debugger.IsAttached)
@@ -49,7 +52,8 @@ namespace CopyAfterProcess
                     @"F:\jeff\Trans",
                     @"H:\jeff\files\Video\Movies"
                 };
-                cleanUp = true;
+                cleanUp = false;
+                updPlex = false;
             }
 
             // Set up paths and normalize them
@@ -213,11 +217,13 @@ namespace CopyAfterProcess
                     var mover = new LongPathProgressFileMover();
 
                     // Set up delegates
-                    mover.OnProgressChanged += (progress, speed, name, ref cancel) =>
+                    mover.OnProgressChanged += (progress, speed, name,
+                                        transferredGB, totalGB, ref cancel) =>
                     {
                         // Report it to the user
-                        string status = $"Copying {name}: {progress:F0}% ({speed})";
-                        Console.Write($"\r {status,-80}");  // Pad to fixed width for overwrite
+                        string status = $"Copying {name}: {progress:F2}% ({speed}) - " +
+                                        $"{{{transferredGB:F4} GB / {totalGB:F4} GB}}";
+                        Console.Write($"\r {status,-100}");  // Pad to fixed width for overwrite
                     };
 
                     mover.OnComplete += (success, message) =>
@@ -257,6 +263,10 @@ namespace CopyAfterProcess
                         Console.WriteLine($"  Error: File sizes do not match after copy.");
                         badFiles++;
                     }
+
+                    // Generate a media info file so that we know that we already processed this item
+                    GenerateMediaInfoFile(longDest, Path.GetDirectoryName(longDest) ?? String.Empty);  // Pass dest file and its dir
+                    //GenerateMediaInfoXml(longDest, Path.GetDirectoryName(longDest) ?? String.Empty);
                 }
                 catch (Exception ex)
                 {
@@ -265,6 +275,32 @@ namespace CopyAfterProcess
                     badFiles++;
                     continue;
                 }
+
+                // NEW: After copying, delete existing "-mediainfo.xml" if present
+                string[] existingMediaInfoPaths = Directory.GetFiles(destSubdir, $"*-mediainfo.xml")
+                                                       .ToArray();
+
+                // Loop through all the files in case there are more than one
+                foreach (var existingMediaInfoPath in existingMediaInfoPaths)
+                {
+                    // Make sure that the file is accessible
+                    if (!string.IsNullOrEmpty(existingMediaInfoPath))
+                    {
+                        try
+                        {
+                            // Delete it
+                            //File.Delete(existingMediaInfoPath);
+                            MoveToRecycleBin(existingMediaInfoPath);
+                            Console.WriteLine($"  Deleted existing: {Path.GetFileName(existingMediaInfoPath)}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"  Warning: Could not delete existing mediainfo: {ex.Message}");
+                        }
+                    }
+                }
+
+
 
                 // Move the old folder to the Recycle Bin
                 MoveToRecycleBin(oldFilePath);
@@ -281,6 +317,8 @@ namespace CopyAfterProcess
             Console.WriteLine("\nProcessing complete.");
             Console.WriteLine($"Total Files: {totalFiles}, Good Files: {goodFiles}, Bad Files: {badFiles}.");
             Console.WriteLine(Environment.NewLine);
+            Console.WriteLine("Telling Plex to scan....");
+            if (updPlex) UpdatePlex();
             Console.WriteLine("Press any key to exit");
             Console.ReadKey();
         }
@@ -334,7 +372,18 @@ namespace CopyAfterProcess
             }
 
             // Shrink the source path
-            path = ShrinkLength(path, GetCleanName(path));
+            if (Directory.Exists(path))
+            {
+                path = ShrinkLength(path, GetCleanName(path));
+            }
+            else if (File.Exists(path) && !path.EndsWith("-mediainfo.xml"))
+            {
+                path = ShrinkLength(path, GetCleanName(path));
+            }
+            else if (File.Exists(path))
+            {
+                path = path;
+            }
 
             // Convert to short path for COM compatibility
             string shortPath = PathConverter.ToShortPath(path);
@@ -467,7 +516,7 @@ namespace CopyAfterProcess
 
                     //Directory.Move(PathConverter.NormalizePath(Path.GetDirectoryName(path)), newFolderPath);
                     // Move it
-                    Directory.Move(PathConverter.NormalizePath(Path.GetDirectoryName(path) 
+                    Directory.Move(PathConverter.NormalizePath(Path.GetDirectoryName(path)
                                 ?? path), newFolderPath);
                     Console.WriteLine($"  Renamed source folder: '{Path.GetFileName(path)}' -> '{Path.GetDirectoryName(newFolderPath)}'");
 
@@ -540,6 +589,137 @@ namespace CopyAfterProcess
                 }
             }
             return namedArgs;
+        }
+
+        /// <summary>
+        /// Triggers a Plex Library scan on the specified Library
+        /// </summary>
+        /// <remarks>
+        /// 1 - Movies - JPC285
+        /// 2 - TV Shows - JPC285
+        /// 3 - Music - JPC285
+        /// 4 - Test Movies
+        /// 5 - Test TV Shows
+        /// </remarks>
+        /// <param name="libraryID">The Library ID to update.  
+        /// Defaults to Movies - JPC285</param>
+        private static void UpdatePlex(int libraryID = 1)
+        {
+            // Trigger full scan (or use --section {id} for specific library)
+            var scannerPath = @"C:\Program Files\Plex\Plex Media Server\Plex Media Scanner.exe";
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = scannerPath,
+                Arguments = $"--scan --section {libraryID.ToString()}",  // 1 = Movies - JPC
+                UseShellExecute = false,
+                RedirectStandardOutput = true
+            };
+            using var process = Process.Start(startInfo);
+            process.Start();  // Optional: Wait for completion
+            Console.WriteLine("Plex scan triggered.");
+        }
+
+        /// <summary>
+        /// Save a .json file containing the media info for the specified file, 
+        /// saved to the specified folder
+        /// </summary>
+        /// <param name="videoPath">Path to source video</param>
+        /// <param name="outputDir">Destination folder to save MediaInfo to</param>
+        private static void GenerateMediaInfoFile(string videoPath, string outputDir)
+        {
+            // Set up paths
+            string fileNameWithoutExt = Path.GetFileNameWithoutExtension(videoPath);
+            string mediaInfoPath = Path.Combine(outputDir, $"{fileNameWithoutExt}_media.json");
+
+            // ffprobe command: Quiet mode, JSON format, show format/streams details
+            string ffprobePath = "ffprobe";  // Assumes in PATH; else: @"C:\ffmpeg\bin\ffprobe.exe"
+            string arguments = $"-v quiet -print_format json -show_format -show_streams \"{videoPath}\"";
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = ffprobePath,
+                Arguments = arguments,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            try
+            {
+                using var process = Process.Start(startInfo);
+                if (process == null)
+                {
+                    Console.WriteLine($"  Warning: Could not start ffprobe for {fileNameWithoutExt}.");
+                    return;
+                }
+
+                string output = process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+
+                if (process.ExitCode != 0)
+                {
+                    Console.WriteLine($"  Warning: ffprobe error for {fileNameWithoutExt}: {error}");
+                    return;
+                }
+
+                // Save JSON to file
+                File.WriteAllText(mediaInfoPath, output, Encoding.UTF8);
+                Console.WriteLine($"  Generated: {Path.GetFileName(mediaInfoPath)}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  Error generating media info: {ex.Message}");
+            }
+        }
+
+        private static void GenerateMediaInfoXml(string videoPath, string destSubdir)
+        {
+            string fileNameWithoutExt = Path.GetFileNameWithoutExtension(videoPath);
+            string mediaInfoPath = Path.Combine(destSubdir, $"{fileNameWithoutExt}-mediainfo.xml");
+
+            // MediaInfo command: XML output, full details
+            string mediainfoExe = @"C:\Program Files\MediaInfo\MediaInfo.exe";  // Assume in PATH; else: @"C:\MediaInfo\MediaInfo.exe"
+            string arguments = $"--Output=XML \"{videoPath}\"";
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = mediainfoExe,
+                Arguments = arguments,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            try
+            {
+                using var process = Process.Start(startInfo);
+                if (process == null)
+                {
+                    Console.WriteLine($"  Warning: Could not start MediaInfo for {fileNameWithoutExt}.");
+                    return;
+                }
+
+                string output = process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+
+                if (process.ExitCode != 0)
+                {
+                    Console.WriteLine($"  Warning: MediaInfo error for {fileNameWithoutExt}: {error}");
+                    return;
+                }
+
+                // Save raw XML
+                File.WriteAllText(mediaInfoPath, output, Encoding.UTF8);
+                Console.WriteLine($"  Generated: {Path.GetFileName(mediaInfoPath)} (TMM-style XML)");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  Error generating -mediainfo.xml: {ex.Message}");
+            }
         }
     }
 }
