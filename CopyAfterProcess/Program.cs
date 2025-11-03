@@ -235,7 +235,7 @@ namespace CopyAfterProcess
                         else
                         {
                             Console.WriteLine("Error!!!1");
-                            Console.WriteLine(message);
+                            Console.WriteLine($"  {message}");
                         }
                     };
 
@@ -276,7 +276,7 @@ namespace CopyAfterProcess
                     continue;
                 }
 
-                // NEW: After copying, delete existing "-mediainfo.xml" if present
+                // After copying, delete existing "-mediainfo.xml" if present
                 string[] existingMediaInfoPaths = Directory.GetFiles(destSubdir, $"*-mediainfo.xml")
                                                        .ToArray();
 
@@ -300,8 +300,6 @@ namespace CopyAfterProcess
                     }
                 }
 
-
-
                 // Move the old folder to the Recycle Bin
                 MoveToRecycleBin(oldFilePath);
 
@@ -317,8 +315,15 @@ namespace CopyAfterProcess
             Console.WriteLine("\nProcessing complete.");
             Console.WriteLine($"Total Files: {totalFiles}, Good Files: {goodFiles}, Bad Files: {badFiles}.");
             Console.WriteLine(Environment.NewLine);
-            Console.WriteLine("Telling Plex to scan....");
-            if (updPlex) UpdatePlex();
+            
+            // Check to see if we want to update the Plex Library
+            if (updPlex)
+            {
+                Console.WriteLine("Telling Plex to scan....");
+                UpdatePlex();
+            }
+
+            // Close-out
             Console.WriteLine("Press any key to exit");
             Console.ReadKey();
         }
