@@ -21,7 +21,9 @@ namespace CopyAfterProcess
         /// <param name="percentage">Overall copy/move 
         /// progress as a percentage</param>
         /// <param name="cancel">Ref bool to cancel processing</param>
-        public delegate void ProgressDelegate(double percentage, string speed, string name, ref bool cancel);
+        public delegate void ProgressDelegate(double percentage, string speed,
+                            string name, double transferredGB,
+                            double totalGB, ref bool cancel);
 
         /// <summary>
         /// Copy/Move Completed Delegate
@@ -70,7 +72,7 @@ namespace CopyAfterProcess
             {
                 // Same drive: Atomic move (File.Move handles long paths with prefix).
                 OnProgressChanged?.Invoke(100.0, "0 MB/s", Path.GetDirectoryName(sourcePath)
-                                    ?? String.Empty, ref cancelFlag);
+                                    ?? String.Empty, 0.00, 0.00, ref cancelFlag);
                 try
                 {
                     // Move it
@@ -138,7 +140,7 @@ namespace CopyAfterProcess
             {
                 // Same drive: Simple copy (File.Copy handles long paths with prefix, overwrites if exists).
                 OnProgressChanged?.Invoke(100.0, "0 MB/s", Path.GetDirectoryName(sourcePath)
-                                    ?? String.Empty, ref cancelFlag);
+                                    ?? String.Empty, 0.00, 0.00, ref cancelFlag);
                 try
                 {
                     // Copy it
@@ -200,6 +202,7 @@ namespace CopyAfterProcess
                 {
                     // Check to see if we need to cancel
                     if (cancelFlag) break;
+                    const double throttleSpeed = 0.75;
 
                     // Write it
                     destStream.Write(buffer, 0, bytesRead);
@@ -209,7 +212,7 @@ namespace CopyAfterProcess
                     // Throttle updates: Every 500ms or at end
                     DateTime now = DateTime.UtcNow;
                     double deltaSeconds = (now - lastUpdate).TotalSeconds;
-                    if (deltaSeconds < 0.5 && totalRead < totalBytes) continue;
+                    if (deltaSeconds < throttleSpeed && totalRead < totalBytes) continue;
 
                     // Calculate instantaneous speed (MB/s) over the last interval
                     double deltaBytes = totalRead - lastTotalRead;
@@ -240,8 +243,13 @@ namespace CopyAfterProcess
                         }
                     }
 
+                    // Calculate transfer totals
+                    double transferredGB = totalRead / (1024.0 * 1024.0 * 1024.0);
+                    double totalGB = totalBytes / (1024.0 * 1024.0 * 1024.0);
+
                     // Report progress (invoke event for external use, e.g., UI)
-                    OnProgressChanged?.Invoke(percentage, speedStr, cleanName, ref cancelFlag);
+                    OnProgressChanged?.Invoke(percentage, speedStr, cleanName,
+                                        transferredGB, totalGB, ref cancelFlag);
 
                     // Report it to the user
                     string status = $"Copying {cleanName}: {percentage:F0}% ({speedStr})";
