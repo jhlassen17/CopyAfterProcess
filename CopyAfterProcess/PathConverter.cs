@@ -114,6 +114,23 @@ namespace CopyAfterProcess
             return ToLongPath(path);
         }
 
+        public static string GetUnprefixedPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+
+            // Remove long path prefix for tools like FFmpeg
+            if (path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+            {
+                return path.Substring(4);  // e.g., "\\?\H:\path" -> "H:\path"
+            }
+            if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+            {
+                return @"\\" + path.Substring(8);  // e.g., "\\?\UNC\server\share" -> "\\server\share"
+            }
+
+            return path;  // No prefix, return as-is
+        }
+
         /// <summary>
         /// Utility method that checks to see if the specified 
         /// path is a long path
