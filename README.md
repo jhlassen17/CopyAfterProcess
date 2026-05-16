@@ -49,7 +49,6 @@ This is especially useful for workflows where files are generated or modified by
 
 ### Scenario: Video Encoding
 
-```text
 1. HandBrakeCLI encodes a video
 2. Encoding finishes
 3. CopyAfterProcess detects completion
